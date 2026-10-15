@@ -1,7 +1,5 @@
----
-title: "EVPI, EVPPI and EVSI: standalone R examples"
-output: html_document
----
+# EVPI, EVPPI and EVSI: standalone R examples
+
 
 Examples, split into a front end and a back end:
 
