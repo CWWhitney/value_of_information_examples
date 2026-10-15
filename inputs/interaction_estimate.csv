@@ -1,0 +1,3 @@
+variable,distribution,lower,upper,description
+rainfall_anomaly,norm,-50,50,"Deviation from average-season rainfall (mm), 90% CI"
+pest_pressure_anomaly,norm,-1,1,"Deviation from average pest pressure index, 90% CI"
