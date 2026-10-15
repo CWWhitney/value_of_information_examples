@@ -1,0 +1,185 @@
+---
+output:
+  github_document:
+    html_preview: false
+    md_extensions: "-smart"
+bibliography: bib/references.bib
+link-citations: true
+---
+<!-- README.md is built from README.Rmd. Do not edit README.md directly;
+     edit README.Rmd and rebuild with:
+     Rscript -e 'rmarkdown::render("README.Rmd")' -->
+
+# EVPI, EVPPI and EVSI: standalone R examples
+
+Two self-contained value-of-information (VoI) examples, split front end /
+back end:
+
+- Front end — [decisionSupport](https://cran.r-project.org/package=decisionSupport):
+  uncertain inputs are defined in `inputs/*.csv` as a 90%-confidence interval
+  with a distribution shape (`estimate_read_csv()`); `mcSimulation()`
+  propagates that uncertainty through the decision model to produce a Monte
+  Carlo sample of inputs and payoffs.
+- Back end — [voi](https://chjackson.github.io/voi/): `evpi()`, `evppi()` and
+  `evsi()` compute the value-of-information measures from that sample using
+  regression methods that work directly with continuous inputs.
+
+This file is generated from [README.Rmd](README.Rmd); references come from
+[bib/references.bib](bib/references.bib). Edit `README.Rmd`, not
+`README.md`, and rebuild with
+`Rscript -e 'rmarkdown::render("README.Rmd")'`.
+
+Install with `install.packages(c("decisionSupport", "voi"))`. Run with:
+
+```r
+source("examples.R")
+source("tests.R")
+```
+
+This prints results and writes three CSVs plus a two-panel PDF to `outputs/`.
+
+## What EVPI, EVPPI and EVSI mean
+
+Choose the decision with the largest *expected* payoff, classical decision theory [@raiffa1961].
+
+**EVPI** — how much better off we'd be, on average, if we could see every
+uncertain input's true value before deciding, versus deciding now (e.g. "do
+nothing").
+
+**EVPPI** — the same idea for one input (or group), while the rest stay
+uncertain; introduced to health-economic modelling by @felli1998. For example, learning 'yield' doesn't also reveal 'price', so we still need to average over the others before deciding. Inputs can also be individually worthless but jointly
+decisive (example 2 below). `voi::evppi()` estimates this with a regression
+fitted to the Monte Carlo sample [@strong2014].
+
+**EVSI** — the value of one specific, realistic study that only partially
+reduces uncertainty (e.g. a few trial plots), as opposed to perfect
+information. It needs a model of how the study's data arise and update our
+beliefs. `voi::evsi()` uses the regression method of @strong2015. A study
+informing only one input is worth no more than perfect knowledge of that
+input, which is worth no more than perfect knowledge of everything.
+
+Net value of sampling is EVSI minus study cost: an expensive study can have
+positive EVSI but negative net value. See @heath2017, @jackson2022, or the
+book by @heath2024 for fuller treatments.
+
+## Example 1: invest in an agricultural technology?
+
+Yield and price are defined in
+[inputs/investment_estimate.csv](inputs/investment_estimate.csv) as
+independent positive-normal (`posnorm`) 90%-CIs:
+
+| variable | distribution | lower (5%) | upper (95%) |
+|----------|---------------|-----------:|------------:|
+| yield    | posnorm       | 2          | 6           |
+| price    | posnorm       | 20         | 40          |
+
+```r
+investment_estimate <- decisionSupport::estimate_read_csv("inputs/investment_estimate.csv")
+investment_model <- function(x) {
+  list(no_investment = rep(0, length(x$yield)),
+       invest = x$yield * x$price - 100)
+}
+investment_mc <- decisionSupport::mcSimulation(
+  estimate = investment_estimate, model_function = investment_model,
+  numberOfModelRuns = 20000, functionSyntax = "data.frameNames"
+)
+voi::evpi(investment_mc$y)
+voi::evppi(investment_mc$y, investment_mc$x, pars = list("yield", "price"))
+```
+
+`investment_mc$x`/`$y` are exactly the `inputs`/`outputs` `voi` expects.
+Approximate results from 20,000 runs (varies slightly by run and method):
+
+| Quantity | Currency units |
+|----------|---------------:|
+| Whole-model EVPI | ~8.7 |
+| Yield EVPPI | ~6.6 |
+| Price EVPPI | ~2.7 |
+| Yield and price together, EVPPI | ~8.7 |
+
+Yield captures most of the EVPI in our example model because payoff is close to linear in
+yield over its range.
+
+A pilot study measuring mean yield across `n` plots (known per-plot SD) uses
+`voi`'s built-in `"normal_known"` design:
+
+```r
+voi::evsi(investment_mc$y, investment_mc$x, study = "normal_known",
+          pars = "yield", n = c(1, 2, 5, 10, 20, 50), aux_pars = list(sd = 1.5))
+```
+
+Bigger pilots approach the yield EVPPI but never reveal price. Since larger
+pilots cost more (`cost = 1 + 0.5 * n` here), EVSI minus cost turns negative
+beyond a handful of plots, even as EVSI itself keeps rising.
+
+## Example 2: complementary information
+
+Neither of two variables alone changes the decision, but knowing both does.
+Inputs (a rainfall anomaly and a pest-pressure anomaly, each normal with a
+90% CI straddling zero) are in
+[inputs/interaction_estimate.csv](inputs/interaction_estimate.csv). A new
+crop variety is adopted only if there's a drought *or* a pest outbreak, not
+both. This `xor` rule is a deliberately stylized worst case, chosen to have
+*zero* marginal signal in either input alone, not a literal claim about how
+adoption decisions work; a more realistic rule (e.g. also adopting when
+both stresses hit at once) would soften the story below but not reverse it
+— see the "general caveat" at the end of this section.
+
+```r
+interaction_model <- function(x) {
+  drought <- x$rainfall_anomaly < 0
+  pest_outbreak <- x$pest_pressure_anomaly > 0
+  list(keep_old_variety = rep(0, length(x$rainfall_anomaly)),
+       adopt_new_variety = ifelse(xor(drought, pest_outbreak), 100, -100))
+}
+```
+
+By construction, whole-model EVPI is exactly 50, and each variable's own
+EVPPI is exactly 0, but together it's also 50: worthless alone, decisive
+together. Single-variable estimates from `voi::evppi()` recover the
+near-zero values easily, but the *joint* EVPPI is a stress test, since there
+is no additive signal for a regression smoother, only a pure interaction:
+
+| Method | Joint EVPPI (true value: 50) |
+|--------|------------------------------:|
+| `"gam"` (default) | ~32, underestimates substantially |
+| `"earth"` (MARS) | ~0, misses the interaction completely |
+| `"bart"` (regression trees) | ~47, closest of the three |
+
+A general caveat: always check whether EVPPI/EVSI for a parameter group is
+sensitive to the regression `method`, and prefer ones that capture
+interactions (`"bart"`, `"gp"`, or a `"gam"` with an explicit interaction
+term). A softer, more realistic version of this model (e.g. the variety is
+still worth adopting when both stresses hit at once) would lower the
+numbers above and let the additive methods partly succeed, since each input
+would then carry some real marginal signal — but the two inputs would still
+be individually far less informative than they are together.
+
+## Other things to keep in mind
+
+- Separate learnable parameter uncertainty from irreducible randomness (e.g.
+  future weather): average over the latter before computing EVPI, or a
+  clairvoyant forecast of random events gets valued as scientific knowledge.
+- `voi`'s regression methods are approximate: cross-check more than one
+  `method` before trusting a single number for a real decision.
+- If inputs are correlated, pass that structure to `estimate_read_csv()`
+  (see `?estimate_read_csv`) rather than sampling independently.
+
+## Packages
+
+- [decisionSupport](https://cran.r-project.org/package=decisionSupport)
+  (front end) [@luedeling2025decisionsupport]: also has `chance_event()`
+  (risky events), `vv()` (year-to-year variation) and `discount()`
+  (discounting cash flows).
+- [voi](https://chjackson.github.io/voi/) (back end) [@jackson2024voi]:
+  EVPPI/EVSI methods include `"gam"`, `"gp"`, `"bart"`, `"earth"`, `"inla"`
+  (EVPPI) and regression, `"is"`, `"mm"` (EVSI).
+- [BCEA](https://gianluca.statistica.it/software/bcea/) and
+[SAVI](https://github.com/Sheffield-Accelerated-VoI/SAVI) for
+cost-effectiveness-analysis-style outputs or a web interface.
+
+(see[bib/references.bib](bib/references.bib))
+
+## References
+
+

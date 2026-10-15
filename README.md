@@ -1,164 +1,139 @@
+
+<!-- README.md is built from README.Rmd. Do not edit README.md directly;
+     edit README.Rmd and rebuild with:
+     Rscript -e 'rmarkdown::render("README.Rmd")' -->
+
 # EVPI, EVPPI and EVSI: standalone R examples
 
+Two self-contained value-of-information (VoI) examples, split front end
+/ back end:
 
-Examples, split into a front end and a back end:
+-   Front end —
+    [decisionSupport](https://cran.r-project.org/package=decisionSupport):
+    uncertain inputs are defined in `inputs/*.csv` as a 90%-confidence
+    interval with a distribution shape (`estimate_read_csv()`);
+    `mcSimulation()` propagates that uncertainty through the decision
+    model to produce a Monte Carlo sample of inputs and payoffs.
+-   Back end — [voi](https://chjackson.github.io/voi/): `evpi()`,
+    `evppi()` and `evsi()` compute the value-of-information measures
+    from that sample using regression methods that work directly with
+    continuous inputs.
 
-- Front end ([decisionSupport](https://cran.r-project.org/package=decisionSupport)):
-  uncertain inputs are defined as a 90%-confidence interval with a distribution
-  shape per variable, in `inputs/*.csv` (`estimate_read_csv()`). `mcSimulation()` propagates this
-  uncertainty through the decision model to produce a Monte Carlo sample of
-  inputs and payoffs.
-- Back end ([voi](https://chjackson.github.io/voi/)): `evpi()`, `evppi()`
-  and `evsi()` compute the value-of-information measures from that sample,
-  using regression-based methods that work directly with continuous inputs.
+This file is generated from [README.Rmd](README.Rmd); references come
+from [bib/references.bib](bib/references.bib). Edit `README.Rmd`, not
+`README.md`, and rebuild with
+`Rscript -e 'rmarkdown::render("README.Rmd")'`.
 
-Running the scripts requires the `decisionSupport` and `voi` packages
-(`install.packages(c("decisionSupport", "voi"))`). Rendering this optional
-document requires `rmarkdown`.
+Install with `install.packages(c("decisionSupport", "voi"))`. Run with:
 
-## The distinction
-
-Let U(d, theta) be the payoff from decision d in uncertain state theta.
-Choose the decision with the largest expected payoff, not the highest median
-or the highest probability of making a profit. This assumes risk neutrality.
-With risk aversion, supply utilities instead of monetary payoffs.
-
-Whole-model EVPI is the expected value of learning all decision-relevant
-uncertain parameters before choosing:
-
-$$EVPI = E_\theta[\max_d U(d,\theta)] - \max_d E_\theta[U(d,\theta)].$$
-
-The first term allows a different decision in each world. The second requires
-one decision now. The difference is the expected loss from deciding with
-current information. Include every feasible alternative, including the
-status quo. It is not the sum of single-variable information values.
-
-EVPPI (Expected Value of Partial Perfect Information) is the value of
-learning one parameter or a group phi perfectly, while uncertainty about the
-remaining parameters psi persists:
-
-$$EVPPI(\phi) =
- E_\phi[\max_d E_{\psi|\phi}[U(d,\phi,\psi)]]
- - \max_d E_\theta[U(d,\theta)].$$
-
-The inner expectation must come BEFORE the maximum: knowing yield does not
-also reveal price. Preserve the conditional distribution of correlated
-parameters rather than resampling them independently. What is often called
-"EVPI for a variable" is more precisely single-variable EVPPI.
-
-Small individual EVPPI values do not imply small whole-model EVPI. Inputs can
-be complementary: neither is useful alone, but knowing both changes the
-decision. The second example demonstrates individual values of zero and a
-joint value of 50. EVPPI values are not generally additive.
-
-EVSI (Expected Value of Sample Information) is the value of a specific,
-imperfect study. Let D denote possible future data:
-
-$$EVSI =
- E_D[\max_d E_{\theta|D}[U(d,\theta)]] - \max_d E_\theta[U(d,\theta)].$$
-
-It requires a sampling model P(D|theta) and a posterior update. An arbitrary
-reduction in an input's standard deviation is not a proper EVSI calculation.
-The study can change the chosen decision, but cannot eliminate all uncertainty.
-Evaluate it before seeing the data by averaging over possible study results.
-
-For a study that learns only phi through P(D|phi):
-
-$$0 \le EVSI \le EVPPI(\phi) \le EVPI.$$
-
-These are theoretical bounds; approximate Monte Carlo or regression estimates
-can violate them because of numerical error or bias. Studies targeting other
-parameters need not be bounded by the EVPPI of phi.
-
-Net value of sampling is EVSI minus study cost. An expensive study can have
-positive EVSI but negative net value. The examples use the same currency,
-decision scale and timing for payoffs and study costs. For real applications,
-also account for implementation delay, discounting, the population benefiting
-from information, and any direct benefits or harms of the study.
-
-## Run
-
-Open an R session with this folder as the working directory:
-
-```r
+``` r
 source("examples.R")
 source("tests.R")
 ```
 
-The example prints results and creates three CSV tables and a two-panel PDF in
-`outputs/`. It deliberately does not modify any other project.
+This prints results and writes three CSVs plus a two-panel PDF to
+`outputs/`.
 
-## Example: invest in an agricultural technology?
+## What EVPI, EVPPI and EVSI mean
 
-The uncertain inputs, yield and price, are defined in
-[inputs/investment_estimate.csv](inputs/investment_estimate.csv) the way you
-would define them for any `decisionSupport` model: a `distribution`, and a
-90%-confidence interval (`lower`, `upper`). Both are independent positive
-normal (`posnorm`) distributions here:
+Choose the decision with the largest *expected* payoff, classical
+decision theory ([Raiffa and Schlaifer 1961](#ref-raiffa1961)).
+
+**EVPI** — how much better off we'd be, on average, if we could see
+every uncertain input's true value before deciding, versus deciding now
+(e.g. "do nothing").
+
+**EVPPI** — the same idea for one input (or group), while the rest stay
+uncertain; introduced to health-economic modelling by [Felli and
+Hazen](#ref-felli1998) ([1998](#ref-felli1998)). For example, learning
+'yield' doesn't also reveal 'price', so we still need to average over
+the others before deciding. Inputs can also be individually worthless
+but jointly decisive (example 2 below). `voi::evppi()` estimates this
+with a regression fitted to the Monte Carlo sample ([Strong, Oakley, and
+Brennan 2014](#ref-strong2014)).
+
+**EVSI** — the value of one specific, realistic study that only
+partially reduces uncertainty (e.g. a few trial plots), as opposed to
+perfect information. It needs a model of how the study's data arise and
+update our beliefs. `voi::evsi()` uses the regression method of [Strong
+et al.](#ref-strong2015) ([2015](#ref-strong2015)). A study informing
+only one input is worth no more than perfect knowledge of that input,
+which is worth no more than perfect knowledge of everything.
+
+Net value of sampling is EVSI minus study cost: an expensive study can
+have positive EVSI but negative net value. See [Heath, Manolopoulou, and
+Baio](#ref-heath2017) ([2017](#ref-heath2017)), [C. H. Jackson et
+al.](#ref-jackson2022) ([2022](#ref-jackson2022)), or the book by
+[Heath, Kunst, and Jackson](#ref-heath2024) ([2024](#ref-heath2024)) for
+fuller treatments.
+
+## Example 1: invest in an agricultural technology?
+
+Yield and price are defined in
+[inputs/investment\_estimate.csv](inputs/investment_estimate.csv) as
+independent positive-normal (`posnorm`) 90%-CIs:
 
 | variable | distribution | lower (5%) | upper (95%) |
-|----------|---------------|-----------:|------------:|
-| yield    | posnorm       | 2          | 6           |
-| price    | posnorm       | 20         | 40          |
+|----------|--------------|-----------:|------------:|
+| yield    | posnorm      |          2 |           6 |
+| price    | posnorm      |         20 |          40 |
 
-```r
+``` r
 investment_estimate <- decisionSupport::estimate_read_csv("inputs/investment_estimate.csv")
 investment_model <- function(x) {
   list(no_investment = rep(0, length(x$yield)),
        invest = x$yield * x$price - 100)
 }
 investment_mc <- decisionSupport::mcSimulation(
-  estimate = investment_estimate,
-  model_function = investment_model,
-  numberOfModelRuns = 20000,
-  functionSyntax = "data.frameNames"
+  estimate = investment_estimate, model_function = investment_model,
+  numberOfModelRuns = 20000, functionSyntax = "data.frameNames"
 )
+voi::evpi(investment_mc$y)
+voi::evppi(investment_mc$y, investment_mc$x, pars = list("yield", "price"))
 ```
 
-`investment_mc$x` is the sampled inputs (one row per MC run, one column per
-variable) and `investment_mc$y` is the sampled payoffs (one column per
-decision): exactly the `inputs`/`outputs` format `voi` expects.
+`investment_mc$x`/`$y` are exactly the `inputs`/`outputs` `voi` expects.
+Approximate results from 20,000 runs (varies slightly by run and
+method):
 
-Approximate results from 20,000 Monte Carlo runs (regression-based, so these
-will vary slightly run to run and with the regression method chosen):
+| Quantity                        | Currency units |
+|---------------------------------|---------------:|
+| Whole-model EVPI                |          \~8.7 |
+| Yield EVPPI                     |          \~6.6 |
+| Price EVPPI                     |          \~2.7 |
+| Yield and price together, EVPPI |          \~8.7 |
 
-| Quantity | Currency units |
-|----------|---------------:|
-| Whole-model EVPI (`voi::evpi`) | ~8.7 |
-| Yield EVPPI (`voi::evppi`) | ~6.6 |
-| Price EVPPI (`voi::evppi`) | ~2.7 |
-| Yield and price together, EVPPI | ~8.7 |
+Yield captures most of the EVPI in our example model because payoff is
+close to linear in yield over its range.
 
-Yield captures most of the whole-model EVPI here, a feature of this toy model
-(payoff is close to linear in yield over its range), not a general result.
+A pilot study measuring mean yield across `n` plots (known per-plot SD)
+uses `voi`'s built-in `"normal_known"` design:
 
-A pilot study measures mean yield across `n` plots with a known per-plot
-standard deviation, using `voi`'s built-in `"normal_known"` sampling design:
-
-```r
-sizes <- c(1, 2, 5, 10, 20, 50)
-voi::evsi(investment_mc$y, investment_mc$x,
-          study = "normal_known", pars = "yield", n = sizes,
-          aux_pars = list(sd = 1.5))
+``` r
+voi::evsi(investment_mc$y, investment_mc$x, study = "normal_known",
+          pars = "yield", n = c(1, 2, 5, 10, 20, 50), aux_pars = list(sd = 1.5))
 ```
 
-More pilot plots approach the yield EVPPI; they never learn price. Larger
-pilots cost more (`cost = 1 + 0.5 * n` in the example), so net value of
-sampling (EVSI minus cost) can fall even as EVSI itself keeps rising; the
-example's output shows the net value turning negative beyond a handful of
-plots.
+Bigger pilots approach the yield EVPPI but never reveal price. Since
+larger pilots cost more (`cost = 1 + 0.5 * n` here), EVSI minus cost
+turns negative beyond a handful of plots, even as EVSI itself keeps
+rising.
 
-## Example: complementary information
+## Example 2: complementary information
 
-Neither of two variables individually changes the decision, but knowing both
-does. Inputs are defined the same CSV-based way, in
-[inputs/interaction_estimate.csv](inputs/interaction_estimate.csv): a rainfall
-anomaly and a pest-pressure anomaly, each normal with a 90% CI straddling
-zero. The model adopts a new variety only if a drought (negative rainfall
-anomaly) and a pest outbreak (positive pressure anomaly) occur, but not both,
-i.e. an `xor`:
+Neither of two variables alone changes the decision, but knowing both
+does. Inputs (a rainfall anomaly and a pest-pressure anomaly, each
+normal with a 90% CI straddling zero) are in
+[inputs/interaction\_estimate.csv](inputs/interaction_estimate.csv). A
+new crop variety is adopted only if there's a drought *or* a pest
+outbreak, not both. This `xor` rule is a deliberately stylized worst
+case, chosen to have *zero* marginal signal in either input alone, not a
+literal claim about how adoption decisions work; a more realistic rule
+(e.g. also adopting when both stresses hit at once) would soften the
+story below but not reverse it — see the "general caveat" at the end of
+this section.
 
-```r
+``` r
 interaction_model <- function(x) {
   drought <- x$rainfall_anomaly < 0
   pest_outbreak <- x$pest_pressure_anomaly > 0
@@ -167,66 +142,140 @@ interaction_model <- function(x) {
 }
 ```
 
-The exact (analytical) values for this symmetric construction are
-whole-model EVPI = 50, and EVPPI = 0 for each variable alone, but EVPPI = 50
-for both together: individually worthless information that is jointly
-decisive. `voi::evppi()`'s regression-based single-variable estimates recover
-the near-zero values easily. The *joint* EVPPI is a stress test for the
-regression method, because there is no additive main-effect signal for a
-smoother to pick up on, only a pure interaction:
+By construction, whole-model EVPI is exactly 50, and each variable's own
+EVPPI is exactly 0, but together it's also 50: worthless alone, decisive
+together. Single-variable estimates from `voi::evppi()` recover the
+near-zero values easily, but the *joint* EVPPI is a stress test, since
+there is no additive signal for a regression smoother, only a pure
+interaction:
 
-| Method | Joint EVPPI (true value: 50) |
-|--------|------------------------------:|
-| `"gam"` (default) | ~32, a substantial underestimate |
-| `"earth"` (MARS) | ~0, misses the interaction completely |
-| `"bart"` (regression trees) | ~47, the closest of the three |
+| Method                      |           Joint EVPPI (true value: 50) |
+|-----------------------------|---------------------------------------:|
+| `"gam"` (default)           |     \~32, underestimates substantially |
+| `"earth"` (MARS)            | \~0, misses the interaction completely |
+| `"bart"` (regression trees) |             \~47, closest of the three |
 
-This is a real, general caveat, not specific to this toy model: always check
-whether EVPPI/EVSI estimates for parameter groups are sensitive to the
-regression `method`, especially when parameters are suspected to interact, and
-prefer methods that can represent interactions (`"bart"`, `"gp"`, or a `"gam"`
-with an explicit interaction/tensor term) over purely additive ones
-(`"earth"` without manually added interaction terms).
+A general caveat: always check whether EVPPI/EVSI for a parameter group
+is sensitive to the regression `method`, and prefer ones that capture
+interactions (`"bart"`, `"gp"`, or a `"gam"` with an explicit
+interaction term). A softer, more realistic version of this model (e.g.
+the variety is still worth adopting when both stresses hit at once)
+would lower the numbers above and let the additive methods partly
+succeed, since each input would then carry some real marginal signal —
+but the two inputs would still be individually far less informative than
+they are together.
 
-## Important limits
+## Other things to keep in mind
 
-- An arbitrary reduction in an input's standard deviation is not a proper
-  EVSI calculation. A study design needs an explicit sampling model, either
-  one of `voi`'s built-in designs (`"binary"`, `"trial_binary"`,
-  `"normal_known"`) or a custom `datagen_fn`.
-- Distinguish learnable parameter uncertainty from irreducible random
-  outcomes. If a payoff model simulates future weather or individual
-  outcomes, average that randomness conditional on the learnable parameters
-  before calculating parameter EVPI; otherwise a clairvoyant forecast of
-  events gets valued as if it were parameter knowledge, which can overstate
-  what research can deliver.
-- `voi`'s regression-based EVPPI/EVSI methods are approximate. As the
-  complementary-information example shows, results can differ substantially
-  between methods; use `se = TRUE` where supported, increase
-  `numberOfModelRuns`, and cross-check with more than one method before
-  relying on a single number for a real decision.
-- Preserve correlation between inputs. If variables are correlated, supply
-  the correlation file to `estimate_read_csv()` (see `?estimate_read_csv`)
-  rather than sampling them independently, since conditioning on one
-  correlated variable implicitly reveals information about the other.
+-   Separate learnable parameter uncertainty from irreducible randomness
+    (e.g. future weather): average over the latter before computing
+    EVPI, or a clairvoyant forecast of random events gets valued as
+    scientific knowledge.
+-   `voi`'s regression methods are approximate: cross-check more than
+    one `method` before trusting a single number for a real decision.
+-   If inputs are correlated, pass that structure to
+    `estimate_read_csv()` (see `?estimate_read_csv`) rather than
+    sampling independently.
 
-## Package roles
+## Packages
 
-- [decisionSupport](https://cran.r-project.org/package=decisionSupport)
-  (front end): `estimate_read_csv()` reads the 90%-CI/distribution-shape CSV
-  format; `mcSimulation()` propagates that uncertainty through a model
-  function to produce the Monte Carlo sample of inputs and payoffs. Other
-  useful parts of the package for building real models include
-  `chance_event()` (binary/categorical risky events), `vv()` (adding
-  simulated year-to-year variation), and `discount()` (discounting a cash
-  flow series).
-- [voi](https://chjackson.github.io/voi/) (back end): `evpi()`,
-  `evppi()` and `evsi()` compute the value-of-information measures from that
-  sample, with several EVPPI/EVSI methods (`"gam"`, `"gp"`, `"bart"`,
-  `"earth"`, `"inla"`, `"so"`, `"sal"` for EVPPI; `"gam"`/other
-  regression methods, `"is"`, `"mm"` for EVSI).
+-   [decisionSupport](https://cran.r-project.org/package=decisionSupport)
+    (front end) ([Luedeling et al.
+    2025](#ref-luedeling2025decisionsupport)): also has `chance_event()`
+    (risky events), `vv()` (year-to-year variation) and `discount()`
+    (discounting cash flows).
+-   [voi](https://chjackson.github.io/voi/) (back end) ([C. Jackson and
+    Heath 2024](#ref-jackson2024voi)): EVPPI/EVSI methods include
+    `"gam"`, `"gp"`, `"bart"`, `"earth"`, `"inla"` (EVPPI) and
+    regression, `"is"`, `"mm"` (EVSI).
+-   [BCEA](https://gianluca.statistica.it/software/bcea/) and
+    [SAVI](https://github.com/Sheffield-Accelerated-VoI/SAVI) for
+    cost-effectiveness-analysis-style outputs or a web interface.
 
-Related packages, for cost-effectiveness-analysis-style outputs or a web
-interface, include [BCEA](https://gianluca.statistica.it/software/bcea/) and
-[SAVI](https://github.com/Sheffield-Accelerated-VoI/SAVI). Check each
-package's documentation for its current API and method-specific assumptions.
+(see[bib/references.bib](bib/references.bib))
+
+## References
+
+<div id="refs" class="references csl-bib-body hanging-indent">
+
+<div id="ref-felli1998" class="csl-entry">
+
+Felli, James C., and Gordon B. Hazen. 1998. “Sensitivity Analysis and
+the Expected Value of Perfect Information.” *Medical Decision Making* 18
+(1): 95–109. <https://doi.org/10.1177/0272989X9801800117>.
+
+</div>
+
+<div id="ref-heath2024" class="csl-entry">
+
+Heath, Anna, Natalia Kunst, and Christopher Jackson. 2024. *Value of
+Information for Healthcare Decision-Making*. Chapman and Hall/CRC.
+<https://doi.org/10.1201/9781003156109>.
+
+</div>
+
+<div id="ref-heath2017" class="csl-entry">
+
+Heath, Anna, Ioanna Manolopoulou, and Gianluca Baio. 2017. “A Review of
+Methods for Analysis of the Expected Value of Information.” *Medical
+Decision Making* 37 (7): 747–58.
+<https://doi.org/10.1177/0272989X17697692>.
+
+</div>
+
+<div id="ref-jackson2022" class="csl-entry">
+
+Jackson, Christopher H., Gianluca Baio, Anna Heath, Mark Strong, Nicky
+J. Welton, and Edward C. F. Wilson. 2022. “Value of Information Analysis
+in Models to Inform Health Policy.” *Annual Review of Statistics and Its
+Application* 9: 95–118.
+<https://doi.org/10.1146/annurev-statistics-040120-010730>.
+
+</div>
+
+<div id="ref-jackson2024voi" class="csl-entry">
+
+Jackson, Christopher, and Anna Heath. 2024. *<span
+class="nocase">voi</span>: Expected Value of Information*.
+<https://doi.org/10.32614/CRAN.package.voi>.
+
+</div>
+
+<div id="ref-luedeling2025decisionsupport" class="csl-entry">
+
+Luedeling, Eike, Lutz Goehring, Katja Schiffers, Cory Whitney, and
+Eduardo Fernandez. 2025. *decisionSupport: Quantitative Support of
+Decision Making Under Uncertainty*.
+<https://doi.org/10.32614/CRAN.package.decisionSupport>.
+
+</div>
+
+<div id="ref-raiffa1961" class="csl-entry">
+
+Raiffa, Howard, and Robert Schlaifer. 1961. *Applied Statistical
+Decision Theory*. Boston: Division of Research, Graduate School of
+Business Administration, Harvard University.
+
+</div>
+
+<div id="ref-strong2014" class="csl-entry">
+
+Strong, Mark, Jeremy E. Oakley, and Alan Brennan. 2014. “Estimating
+Multiparameter Partial Expected Value of Perfect Information from a
+Probabilistic Sensitivity Analysis Sample: A Nonparametric Regression
+Approach.” *Medical Decision Making* 34 (3): 311–26.
+<https://doi.org/10.1177/0272989X13505910>.
+
+</div>
+
+<div id="ref-strong2015" class="csl-entry">
+
+Strong, Mark, Jeremy E. Oakley, Alan Brennan, and Penny Breeze. 2015.
+“Estimating the Expected Value of Sample Information Using the
+Probabilistic Sensitivity Analysis Sample: A Fast, Nonparametric
+Regression-Based Method.” *Medical Decision Making* 35 (5): 570–83.
+<https://doi.org/10.1177/0272989X15575286>.
+
+</div>
+
+</div>
