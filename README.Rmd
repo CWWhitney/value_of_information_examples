@@ -3,12 +3,12 @@
 
 Examples, split into a front end and a back end:
 
-- **Front end ([decisionSupport](https://cran.r-project.org/package=decisionSupport)):**
+- Front end ([decisionSupport](https://cran.r-project.org/package=decisionSupport)):
   uncertain inputs are defined as a 90%-confidence interval with a distribution
   shape per variable, in `inputs/*.csv` (`estimate_read_csv()`). `mcSimulation()` propagates this
   uncertainty through the decision model to produce a Monte Carlo sample of
   inputs and payoffs.
-- **Back end ([voi](https://chjackson.github.io/voi/)):** `evpi()`, `evppi()`
+- Back end ([voi](https://chjackson.github.io/voi/)): `evpi()`, `evppi()`
   and `evsi()` compute the value-of-information measures from that sample,
   using regression-based methods that work directly with continuous inputs.
 
@@ -23,7 +23,7 @@ Choose the decision with the largest expected payoff, not the highest median
 or the highest probability of making a profit. This assumes risk neutrality.
 With risk aversion, supply utilities instead of monetary payoffs.
 
-**Whole-model EVPI** is the expected value of learning all decision-relevant
+Whole-model EVPI is the expected value of learning all decision-relevant
 uncertain parameters before choosing:
 
 $$EVPI = E_\theta[\max_d U(d,\theta)] - \max_d E_\theta[U(d,\theta)].$$
@@ -33,7 +33,7 @@ one decision now. The difference is the expected loss from deciding with
 current information. Include every feasible alternative, including the
 status quo. It is not the sum of single-variable information values.
 
-**EVPPI** (Expected Value of Partial Perfect Information) is the value of
+EVPPI (Expected Value of Partial Perfect Information) is the value of
 learning one parameter or a group phi perfectly, while uncertainty about the
 remaining parameters psi persists:
 
@@ -51,7 +51,7 @@ be complementary: neither is useful alone, but knowing both changes the
 decision. The second example demonstrates individual values of zero and a
 joint value of 50. EVPPI values are not generally additive.
 
-**EVSI** (Expected Value of Sample Information) is the value of a specific,
+EVSI (Expected Value of Sample Information) is the value of a specific,
 imperfect study. Let D denote possible future data:
 
 $$EVSI =
@@ -71,7 +71,7 @@ These are theoretical bounds; approximate Monte Carlo or regression estimates
 can violate them because of numerical error or bias. Studies targeting other
 parameters need not be bounded by the EVPPI of phi.
 
-**Net value of sampling** is EVSI minus study cost. An expensive study can have
+Net value of sampling is EVSI minus study cost. An expensive study can have
 positive EVSI but negative net value. The examples use the same currency,
 decision scale and timing for payoffs and study costs. For real applications,
 also account for implementation delay, discounting, the population benefiting
@@ -213,7 +213,7 @@ with an explicit interaction/tensor term) over purely additive ones
 
 ## Package roles
 
-- **[decisionSupport](https://cran.r-project.org/package=decisionSupport)**
+- [decisionSupport](https://cran.r-project.org/package=decisionSupport)
   (front end): `estimate_read_csv()` reads the 90%-CI/distribution-shape CSV
   format; `mcSimulation()` propagates that uncertainty through a model
   function to produce the Monte Carlo sample of inputs and payoffs. Other
@@ -221,7 +221,7 @@ with an explicit interaction/tensor term) over purely additive ones
   `chance_event()` (binary/categorical risky events), `vv()` (adding
   simulated year-to-year variation), and `discount()` (discounting a cash
   flow series).
-- **[voi](https://chjackson.github.io/voi/)** (back end): `evpi()`,
+- [voi](https://chjackson.github.io/voi/) (back end): `evpi()`,
   `evppi()` and `evsi()` compute the value-of-information measures from that
   sample, with several EVPPI/EVSI methods (`"gam"`, `"gp"`, `"bart"`,
   `"earth"`, `"inla"`, `"so"`, `"sal"` for EVPPI; `"gam"`/other
