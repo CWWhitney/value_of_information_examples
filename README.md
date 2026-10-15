@@ -55,8 +55,7 @@ EVSI (Expected Value of Sample Information) is the value of a specific,
 imperfect study. Let D denote possible future data:
 
 $$EVSI =
- E_D[\max_d E_{\theta|D}[U(d,\theta)]]
- - \max_d E_\theta[U(d,\theta)].$$
+ E_D[\max_d E_{\theta|D}[U(d,\theta)]] - \max_d E_\theta[U(d,\theta)].$$
 
 It requires a sampling model P(D|theta) and a posterior update. An arbitrary
 reduction in an input's standard deviation is not a proper EVSI calculation.
