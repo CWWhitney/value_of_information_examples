@@ -1,0 +1,129 @@
+---
+title: "Value of information for the Hanoi school garden decision"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    df_print: paged
+bibliography: bib/references.bib
+link-citations: true
+params:
+  refresh: false   # re-run the slow parts (bootstrap EVPPI, bart, EVSI); about 10 minutes
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+source("functions/load_all.R")
+dir.create("outputs", showWarnings = FALSE)
+refresh <- isTRUE(params$refresh)
+set.seed(42)
+```
+
+Value-of-information (VoI) analysis of the school garden model (@whitney2026garden). Front end:
+`decisionSupport` (inputs as 90% CIs in `inputs/school_garden_estimate.csv`, `mcSimulation()`); back end:
+`voi` (`evpi()`, `evppi()`, `evsi()`, `enbs()`, `pop_voi()`). Functions are in `functions/voi_garden.R`;
+heavy results are saved in `outputs/`.
+
+# Monte Carlo simulation and decision problems
+
+Two decision problems, private and public schools, each choosing between no garden (payoff 0 by
+construction, since NPVs are relative to it), a garden, and a garden with STEM education.
+
+```{r mc}
+garden_mc <- run_garden_mc(n = 1e4, seed = 42)
+x <- garden_inputs(garden_mc)
+decisions <- garden_decisions(garden_mc)
+knitr::kable(t(sapply(decisions, colMeans)), digits = 0, caption = "Expected NPV by option (million VND)")
+```
+
+# EVPI: the value of removing all uncertainty
+
+```{r evpi}
+evpi_tab <- evpi_table(decisions)
+knitr::kable(evpi_tab, digits = 1)
+```
+
+# EVPPI: which inputs matter
+
+Single inputs, regression-based (`voi::evppi()`, default `gam`).
+
+```{r evppi-single}
+single_evppi <- cached_csv("outputs/evppi_single.csv", evppi_single_all(decisions, x), refresh)
+knitr::kable(do.call(rbind, lapply(split(single_evppi, single_evppi$school), head, 8)),
+             digits = 2, row.names = FALSE, caption = "Eight largest single-input EVPPIs per school type (million VND)")
+```
+
+Almost all single-input EVPPIs are close to zero although the EVPI is large. Two likely reasons (not tested
+separately here): the plain garden is best in most of the input space, so no single input changes the
+decision often; and much of the EVPI is irreducible randomness inside each run (`chance_event()` and `vv()`
+draws), which no parameter study can resolve.
+
+## Signal or noise?
+
+Bootstrap standard errors (`evppi(se = TRUE)`) and two other regression methods for the five largest inputs
+of each school type:
+
+```{r evppi-robust}
+robust <- cached_csv("outputs/evppi_robustness.csv", evppi_robustness(decisions, x, single_evppi), refresh)
+knitr::kable(robust, digits = 2)
+```
+
+Only `bureaucratic_barriers` (public schools) is more than two standard errors above zero. The regression
+residuals of the largest public-school input can be checked with `voi::check_regression()`:
+
+```{r check-regression, fig.height = 6}
+top_public <- single_evppi$input[single_evppi$school == "public"][1]
+fit <- voi::evppi(decisions$public, x, pars = top_public, check = TRUE)
+voi::check_regression(fit)
+```
+
+## Grouped EVPPI
+
+```{r evppi-groups}
+groups <- garden_input_groups(x)
+group_evppi <- cached_csv("outputs/evppi_groups.csv", evppi_groups_table(decisions, x, groups, evpi_tab), refresh)
+knitr::kable(group_evppi, digits = 2)
+```
+
+# EVSI, population value and net benefit of sampling
+
+An illustrative study surveys `n` public schools to learn how often bureaucratic barriers stop a garden
+(`barrier_study()`, a binomial data generator for `voi::evsi()`). The study cost (2 + 0.5 per school surveyed,
+million VND), the 5-year horizon and the 5% continuous discount rate are **assumptions for illustration**.
+The number of schools that would use the result is not taken from any source: a grid is shown and the
+break-even number of schools is solved for.
+
+```{r evsi}
+if (refresh || !file.exists("outputs/evsi_breakeven_schools.csv")) {
+  survey <- barrier_survey_value(decisions, x)
+  write.csv(survey$studies, "outputs/evsi_bureaucratic_barriers.csv", row.names = FALSE)
+  write.csv(survey$enbs_best, "outputs/enbs_by_population.csv", row.names = FALSE)
+  write.csv(survey$breakeven, "outputs/evsi_breakeven_schools.csv", row.names = FALSE)
+}
+studies <- read.csv("outputs/evsi_bureaucratic_barriers.csv")
+knitr::kable(studies, digits = 2, caption = "EVSI per school, cost and net value by survey size (million VND)")
+knitr::kable(read.csv("outputs/enbs_by_population.csv"), digits = 1,
+             caption = "Best survey size and expected net benefit of sampling, by number of schools deciding")
+knitr::kable(read.csv("outputs/evsi_breakeven_schools.csv"), digits = 2,
+             caption = "Number of schools that must use the result for each survey to break even")
+```
+
+EVSI is per school and noisy (it is not monotonic at small `n`, and should not exceed the EVPPI of
+`bureaucratic_barriers`, which has a standard error of about 0.9), so the break-even numbers are an order of
+magnitude only.
+
+# Pareto-optimal draws of the Monte Carlo sample
+
+A post hoc view of the sampled outcomes (economic return, child health, biodiversity): which draws are not
+dominated on all three objectives at once (`rPref::psel()`).
+
+```{r pareto-mc}
+pf <- list(garden = mc_pareto_set(garden_mc$y$NPV_garden, garden_mc$y$health, garden_mc$y$biodiversity),
+           garden_STEM = mc_pareto_set(garden_mc$y$NPV_garden_STEM, garden_mc$y$health_STEM, garden_mc$y$biodiversity))
+pareto_mc_summary <- do.call(rbind, lapply(names(pf), function(o) data.frame(
+  option = o, n_pareto = nrow(pf[[o]]), econ_median = median(pf[[o]]$economic_return),
+  health_median = median(pf[[o]]$child_health), biodiversity_median = median(pf[[o]]$biodiversity))))
+write.csv(pareto_mc_summary, "outputs/pareto_summary.csv", row.names = FALSE)
+knitr::kable(pareto_mc_summary, digits = 1)
+write.csv(evpi_tab, "outputs/evpi.csv", row.names = FALSE)
+```

@@ -7,3 +7,7 @@
 
 # macOS
 .DS_Store
+
+# Rendered documents (rebuild with rmarkdown::render)
+value_of_information.html
+*_files/

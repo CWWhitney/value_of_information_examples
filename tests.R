@@ -1,112 +1,41 @@
 # Run from this folder: Rscript tests.R
 #
-# Integration sanity checks for the decisionSupport (front end) + voi (back
-# end) pipeline used in examples.R. These are approximate, since both the
-# Monte Carlo sample and the EVPPI/EVSI regressions have sampling error;
-# tolerances are set accordingly.
-suppressPackageStartupMessages({
-  library(decisionSupport)
-  library(voi)
-})
+# Sanity checks for the school garden analysis (functions in functions/). Approximate where Monte Carlo
+# or regression error is involved; tolerances are set accordingly.
+suppressPackageStartupMessages(library(voi))
+source("functions/load_all.R")
+est <- garden_estimate()
 
-near <- function(actual, expected, tolerance) {
-  stopifnot(isTRUE(all.equal(unname(actual), expected, tolerance = tolerance,
-                              scale = 1)))
-}
+# 1. Every variable in the input table is used by the model.
+vars <- rownames(est$marginal)
+model_text <- paste(readLines("functions/school_garden_model.R"), collapse = " ")
+stopifnot(all(sapply(vars, grepl, x = model_text, fixed = TRUE)))
 
-set.seed(1)
+# 2. land_access matters for the public-school NPV: a higher chance of having land gives a
+#    higher mean NPV.
+est_land <- function(lo, hi) { e <- est; e$marginal["land_access", c("lower", "upper")] <- c(lo, hi); e }
+mean_public_npv <- function(e) mean(run_garden_mc(n = 4000, seed = 2, estimate = e)$y$NPV_garden_public_school_inclusive)
+stopifnot(mean_public_npv(est_land(0.9, 0.99)) > mean_public_npv(est_land(0.1, 0.3)))
 
-# ------------------------------------------------------------------
-# Investment example
-# ------------------------------------------------------------------
-investment_estimate <- estimate_read_csv("inputs/investment_estimate.csv")
-stopifnot(identical(sort(rownames(investment_estimate$marginal)),
-                     c("price", "yield")))
+# 3. Private-school results are not affected by the public-school failure events: costs in years
+#    2+ are never zeroed, so total costs are positive in every run.
+mc <- run_garden_mc(n = 3000, seed = 1)
+stopifnot(all(mc$y$total_costs > 0), all(mc$y$total_costs_STEM > 0))
 
-investment_model <- function(x) {
-  list(no_investment = rep(0, length(x$yield)),
-       invest = x$yield * x$price - 100)
-}
-investment_mc <- mcSimulation(
-  estimate = investment_estimate,
-  model_function = investment_model,
-  numberOfModelRuns = 20000L,
-  functionSyntax = "data.frameNames"
-)
+# 4. VoI sanity: EVPI >= 0, EVPPI of an input <= EVPI (+ regression noise); bootstrap SEs are returned;
+#    pop_voi() follows its documented formula; enbs() runs on an evsi-style data frame.
+x <- garden_inputs(mc)
+pub <- garden_decisions(mc)$public
+whole <- voi::evpi(pub)
+stopifnot(whole >= 0)
+for (p in c("bureaucratic_barriers", "school_event_value", "if_community_likes"))
+  stopifnot(voi::evppi(pub, x, pars = p)$evppi <= 1.1 * whole)
+stopifnot(voi::evppi(pub, x, pars = list(names(x)), method = "earth")$evppi <= 1.1 * whole)
+g <- voi::evppi(pub, x, pars = list("bureaucratic_barriers"), se = TRUE, B = 100)
+stopifnot(is.finite(g$se), g$se > 0)
+stopifnot(isTRUE(all.equal(voi::pop_voi(2, 100, 5, 0.05), 2 * 100 / 0.05 * (1 - exp(-0.05 * 5)))))
+ev <- data.frame(n = c(10, 50), k = 1, evsi = c(1, 2))
+en <- voi::enbs(ev, costs_setup = 2, costs_pp = 0.5, pop = 100, time = 5, dis = 0.05)
+stopifnot(all(is.finite(en$enbs)), nrow(attr(en, "enbsmax")) == 1)
 
-whole_evpi <- voi::evpi(investment_mc$y)
-stopifnot(whole_evpi >= 0)
-
-partial <- voi::evppi(
-  investment_mc$y, investment_mc$x,
-  pars = list("yield", "price", c("yield", "price"))
-)
-yield_evppi <- partial$evppi[partial$pars == "yield"]
-price_evppi <- partial$evppi[partial$pars == "price"]
-joint_evppi <- partial$evppi[partial$pars == "yield,price"]
-
-# Single-variable EVPPI must be nonnegative and bounded above by the
-# whole-model EVPI (small MC/regression tolerance).
-stopifnot(yield_evppi >= -0.5, yield_evppi <= whole_evpi + 0.5)
-stopifnot(price_evppi >= -0.5, price_evppi <= whole_evpi + 0.5)
-# The payoff is a deterministic function of yield and price together, so
-# learning both should recover (approximately) the whole-model EVPI.
-near(joint_evppi, whole_evpi, tolerance = 0.5)
-# Known analytical approximate values for this model (posnorm 90% CIs of
-# yield in [2,6] and price in [20,40]): whole EVPI and single-variable
-# EVPPI should sit near 8.7, 6.6 and 2.7 respectively.
-near(whole_evpi, 8.7, tolerance = 1.5)
-near(yield_evppi, 6.6, tolerance = 1.5)
-near(price_evppi, 2.7, tolerance = 1.5)
-
-sizes <- c(1L, 5L, 20L, 50L)
-evsi_sized <- voi::evsi(
-  investment_mc$y, investment_mc$x,
-  study = "normal_known", pars = "yield", n = sizes,
-  aux_pars = list(sd = 1.5)
-)
-# EVSI must be nonnegative, bounded by the yield EVPPI, and nondecreasing
-# as the pilot gets larger.
-stopifnot(all(evsi_sized$evsi >= -0.5))
-stopifnot(all(evsi_sized$evsi <= yield_evppi + 1))
-stopifnot(all(diff(evsi_sized$evsi) >= -0.5))
-
-# ------------------------------------------------------------------
-# Complementary information example
-# ------------------------------------------------------------------
-interaction_estimate <- estimate_read_csv("inputs/interaction_estimate.csv")
-interaction_model <- function(x) {
-  drought <- x$rainfall_anomaly < 0
-  pest_outbreak <- x$pest_pressure_anomaly > 0
-  list(keep_old_variety = rep(0, length(x$rainfall_anomaly)),
-       adopt_new_variety = ifelse(xor(drought, pest_outbreak), 100, -100))
-}
-interaction_mc <- mcSimulation(
-  estimate = interaction_estimate,
-  model_function = interaction_model,
-  numberOfModelRuns = 20000L,
-  functionSyntax = "data.frameNames"
-)
-
-interaction_evpi <- voi::evpi(interaction_mc$y)
-# Exact analytical value for this symmetric construction is 50.
-near(interaction_evpi, 50, tolerance = 5)
-
-rainfall_evppi <- voi::evppi(interaction_mc$y, interaction_mc$x,
-                              pars = "rainfall_anomaly")$evppi
-pest_evppi <- voi::evppi(interaction_mc$y, interaction_mc$x,
-                          pars = "pest_pressure_anomaly")$evppi
-# Neither variable alone should carry much value (exact value is 0).
-stopifnot(abs(rainfall_evppi) < 3, abs(pest_evppi) < 3)
-
-joint_bart <- voi::evppi(interaction_mc$y, interaction_mc$x,
-                          pars = c("rainfall_anomaly", "pest_pressure_anomaly"),
-                          method = "bart", nsim = 5000L)$evppi
-joint_earth <- voi::evppi(interaction_mc$y, interaction_mc$x,
-                           pars = c("rainfall_anomaly", "pest_pressure_anomaly"),
-                           method = "earth")$evppi
-# "bart" should recover most of the interaction value; "earth" (an additive
-# MARS model with no built-in interaction terms) should find close to none.
-stopifnot(joint_bart > 30, abs(joint_earth) < 3)
-
-cat("All value-of-information integration tests passed.\n")
+cat("All tests passed.\n")
