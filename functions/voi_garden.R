@@ -58,7 +58,7 @@ garden_input_groups <- function(x) {
        all_probabilities = prob, all_values = setdiff(names(x), prob))
 }
 
-# Grouped EVPPI by regression method. "gam" handles up to 4 inputs; "earth" any number but can miss interactions.
+# Grouped EVPPI by regression method; estimates above the EVPI are flagged (`*_noisy`). "gam" handles up to 4 inputs; "earth" any number but can miss interactions.
 evppi_groups_table <- function(decisions, x, groups, evpi_tab, seed = 42) {
   set.seed(seed)
   res <- do.call(rbind, lapply(names(decisions), function(s) {
@@ -69,7 +69,12 @@ evppi_groups_table <- function(decisions, x, groups, evpi_tab, seed = 42) {
                  gam = if (length(pars) <= 4) safe("gam") else NA_real_, earth = safe("earth"), row.names = NULL)
     }))
   }))
-  merge(res, evpi_tab[, c("school", "evpi")], by = "school")
+  res <- merge(res, evpi_tab[, c("school", "evpi")], by = "school")
+  # An EVPPI above the EVPI is impossible in theory: the regression overfits, so the estimate is not usable.
+  res$gam_noisy <- !is.na(res$gam) & res$gam > res$evpi
+  res$earth_noisy <- !is.na(res$earth) & res$earth > res$evpi
+  res$noisy <- res$gam_noisy | res$earth_noisy
+  res
 }
 
 # ---- EVSI: a survey of n public schools about bureaucratic barriers ---------------------------

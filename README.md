@@ -192,8 +192,10 @@ indistinguishable from zero. The private-school EVPPIs are zero to
 within the noise. All of these are tiny next to the public-school EVPI
 (\~195), so the supported conclusion is that no single input is worth
 resolving on its own, and that `bureaucratic_barriers` is the most
-credible candidate. Grouped EVPPI (`outputs/evppi_groups.csv`) for the
-three land-access and bureaucracy probabilities is \~3 (`gam`) to \~5
+credible candidate. Grouped EVPPI (`outputs/evppi_groups.csv`; estimates
+above the EVPI are impossible and flagged `*_noisy`, e.g. `earth` for
+private-school `all_values`, 43.6 vs EVPI 36.2) for the three
+land-access and bureaucracy probabilities is \~3 (`gam`) to \~5
 (`earth`) for public schools. The residuals of the `school_event_value`
 fit are checked with `voi::check_regression()` (shown in
 `value_of_information.Rmd`).

@@ -97,6 +97,10 @@ for (i in seq_len(nrow(evsi_csv))) {
   near(evsi_md[["Study cost"]][i], evsi_csv$cost[i], 1)
   stopifnot(identical(evsi_md$Noisy[i] == "yes", evsi_csv$noisy[i]))
 }
+# Grouped EVPPIs above the EVPI must be flagged as noisy
+grp <- read.csv("outputs/evppi_groups.csv")
+stopifnot(all(grp$earth_noisy == (!is.na(grp$earth) & grp$earth > grp$evpi)),
+          all(grp$gam_noisy == (!is.na(grp$gam) & grp$gam > grp$evpi)))
 # EVPPI cannot exceed EVPI
 stopifnot(all(read.csv("outputs/evppi_single.csv")$evppi <= 1.1 * max(evpi_csv$evpi)))
 

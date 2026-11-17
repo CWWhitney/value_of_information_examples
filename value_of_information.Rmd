@@ -86,6 +86,13 @@ group_evppi <- cached_csv("outputs/evppi_groups.csv", evppi_groups_table(decisio
 knitr::kable(group_evppi, digits = 2)
 ```
 
+`gam_noisy` / `earth_noisy` flag estimates above the EVPI, which is impossible in theory: the regression overfits
+(`earth` with many inputs, e.g. private-school `all_values`), so such values must be discarded, not read as results.
+
+```{r evppi-groups-check, include = FALSE}
+stopifnot(all(c("gam_noisy", "earth_noisy") %in% names(group_evppi)))
+```
+
 # EVSI, population value and net benefit of sampling
 
 An illustrative study surveys `n` public schools to learn how often bureaucratic barriers stop a garden
