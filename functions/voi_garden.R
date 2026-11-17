@@ -21,7 +21,8 @@ evpi_table <- function(decisions) {
 }
 
 # EVPPI of every input on its own (regression-based, default "gam"); negative regression noise set to 0
-evppi_single_all <- function(decisions, x) {
+evppi_single_all <- function(decisions, x, seed = 42) {
+  set.seed(seed)
   res <- do.call(rbind, lapply(names(decisions), function(s) {
     data.frame(school = s, input = names(x),
                evppi = sapply(names(x), function(p) voi::evppi(decisions[[s]], x, pars = p)$evppi),
@@ -33,7 +34,8 @@ evppi_single_all <- function(decisions, x) {
 
 # Bootstrap standard errors (evppi(se = TRUE)) and the "earth" and "bart" regression methods for
 # the `n_top` largest single-input EVPPIs of each school type: is the ranking signal or noise?
-evppi_robustness <- function(decisions, x, single_evppi, n_top = 5, B = 500) {
+evppi_robustness <- function(decisions, x, single_evppi, n_top = 5, B = 500, seed = 42) {
+  set.seed(seed)
   res <- do.call(rbind, lapply(names(decisions), function(s) {
     p <- head(single_evppi$input[single_evppi$school == s], n_top)
     g <- voi::evppi(decisions[[s]], x, pars = as.list(p), se = TRUE, B = B)
@@ -57,7 +59,8 @@ garden_input_groups <- function(x) {
 }
 
 # Grouped EVPPI by regression method. "gam" handles up to 4 inputs; "earth" any number but can miss interactions.
-evppi_groups_table <- function(decisions, x, groups, evpi_tab) {
+evppi_groups_table <- function(decisions, x, groups, evpi_tab, seed = 42) {
+  set.seed(seed)
   res <- do.call(rbind, lapply(names(decisions), function(s) {
     do.call(rbind, lapply(names(groups), function(g) {
       pars <- groups[[g]]
@@ -76,21 +79,36 @@ barrier_study <- function(inputs, n = 20) {
 }
 
 # Study cost is an illustrative assumption (setup 2 + 0.5 per school surveyed, million VND), as are
-# the 5-year horizon and 5% continuous discount rate; the number of schools is NOT taken from any source.
+# the 5-year horizon, 5% continuous discount rate and the reference number of schools (`pop_ref`);
+# the number of schools is NOT taken from any source.
+# EVSI is per school; the population value of a study is EVSI x (discounted number of schools x years)
+# from voi::pop_voi(), and a study is worth doing only if that exceeds its cost.
+# Rows are flagged `noisy` when the regression estimate cannot be trusted: numerically zero, above the
+# EVPPI of the same input (EVSI cannot exceed it), or below the EVSI of a smaller survey (EVSI cannot fall
+# as n grows). Break-even is not reported for noisy rows.
 barrier_survey_value <- function(decisions, x, sizes = c(5L, 10L, 20L, 50L, 100L),
                                  costs_setup = 2, costs_pp = 0.5, time = 5, dis = 0.05,
-                                 pop_grid = c(10, 50, 100, 500, 1000, 5000)) {
+                                 pop_grid = c(10, 50, 100, 500, 1000, 5000), pop_ref = 100, seed = 42) {
+  set.seed(seed)
   evsi <- voi::evsi(decisions$public, x, study = NULL, pars = "bureaucratic_barriers",
                     datagen_fn = barrier_study, n = sizes, check = TRUE)
+  evppi_ref <- max(voi::evppi(decisions$public, x, pars = "bureaucratic_barriers")$evppi, 0)
   evsi$k <- 1  # no willingness-to-pay threshold: payoffs are already monetary
   enbs <- voi::enbs(evsi, costs_setup = costs_setup, costs_pp = costs_pp, pop = pop_grid, time = time, dis = dis)
   best <- as.data.frame(attr(enbs, "enbsmax"))
   best$pop <- pop_grid[best$ind]
   cost <- costs_setup + costs_pp * sizes
+  noisy <- evsi$evsi < 0.01 | evsi$evsi > evppi_ref |
+    evsi$evsi < sapply(seq_along(sizes), function(i) max(c(0, evsi$evsi[seq_len(i - 1)])))
+  value_per_school <- voi::pop_voi(evsi$evsi, 1, time, dis)  # discounted value of one school using the result
   breakeven <- data.frame(n_survey = sizes, evsi_per_school = evsi$evsi, cost = cost,
-                          breakeven_schools = cost / voi::pop_voi(evsi$evsi, 1, time, dis))
-  studies <- data.frame(n = c(0L, sizes), evsi = c(0, evsi$evsi), cost = c(0, cost))
-  studies$net_value <- studies$evsi - studies$cost
+                          breakeven_schools = ifelse(noisy & evsi$evsi < 0.01, NA, cost / value_per_school),
+                          noisy = noisy)
+  studies <- data.frame(n = sizes, evsi_per_school = evsi$evsi, evppi_ref = evppi_ref,
+                        value_per_school = value_per_school, cost = cost, pop_ref = pop_ref,
+                        value_pop_ref = value_per_school * pop_ref)
+  studies$net_value_pop_ref <- studies$value_pop_ref - studies$cost
+  studies$noisy <- noisy
   list(evsi = evsi, enbs_best = best[, c("pop", "nmax", "enbsmax")], breakeven = breakeven, studies = studies)
 }
 

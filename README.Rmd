@@ -39,7 +39,18 @@ This file is generated from [README.Rmd](README.Rmd); references come from
 `README.md`, and rebuild with
 `Rscript -e 'rmarkdown::render("README.Rmd")'`.
 
-Install with `install.packages(c("decisionSupport", "voi", "rPref"))`.
+## Installation and reproducibility
+
+Install with `install.packages(c("decisionSupport", "voi", "rPref", "earth", "dbarts", "mgcv", "rmarkdown"))`
+(`earth` and `dbarts` are needed for the cross-check regression methods). To get exactly the package versions
+the results were produced with, run `renv::restore(lockfile = "renv.lock")` from the repository root.
+
+Tested with R 4.6.1, `voi` 1.0.3, `decisionSupport` 1.115, `rPref` 1.5.0, `earth` 5.3.6, `dbarts` 0.9.34 and
+`mgcv` 1.9.4 (full list: `renv.lock`; the rendered document ends with `sessionInfo()`). A full recompute
+(`refresh = TRUE`) took about 3.5 minutes on a laptop. Every stochastic step re-seeds itself (`seed = 42`), so
+results are the same whatever order or subset of chunks you run. Saved results in `outputs/` are reused only
+while the input table and all of `functions/*.R` are unchanged (each CSV has a `.key` file holding their hash);
+if anything changes they are recomputed automatically.
 
 ## How the repository is organised
 
@@ -60,11 +71,12 @@ source("tests.R")                                # sanity checks
 Choose the decision with the largest *expected* payoff, classical decision theory [@raiffa1961].
 
 **EVPI** — how much better off we'd be, on average, if we could see every
-uncertain input's true value before deciding, versus deciding now (e.g. "do
-nothing").
+uncertain input's true value before deciding, versus deciding now with the
+option that has the highest expected payoff (here the plain garden, not "do
+nothing"). It is an upper bound on the value of any research.
 
 **EVPPI** — the same idea for one input (or group), while the rest stay
-uncertain; introduced to health-economic modelling by @felli1998. For example, learning one input doesn't also reveal the others, so we still need to average over the others before deciding. Inputs can also be individually worthless but jointly
+uncertain; introduced to health-economic modelling by @felli1998. Learning one input does not reveal the others, so we still have to average over the others when deciding after learning it. Inputs can also be individually worthless but jointly
 decisive (see the grouped EVPPI below). `voi::evppi()` estimates this with a regression
 fitted to the Monte Carlo sample [@strong2014].
 
@@ -75,9 +87,28 @@ beliefs. `voi::evsi()` uses the regression method of @strong2015. A study
 informing only one input is worth no more than perfect knowledge of that
 input, which is worth no more than perfect knowledge of everything.
 
-Net value of sampling is EVSI minus study cost: an expensive study can have
+EVSI is a value *per decision*. The expected net benefit of sampling (ENBS) is EVSI multiplied by the
+(discounted) number of decisions that use the result, minus the study cost: an expensive study can have
 positive EVSI but negative net value. See @heath2017, @jackson2022, or the
 book by @heath2024 for fuller treatments.
+
+## How to read the numbers
+
+Everything is in million VND of net present value (NPV) **per school**. The three measures are ordered:
+EVSI of a study on one input <= EVPPI of that input <= EVPI. Worked example, public schools:
+
+1. Deciding now, the best option is the plain garden with an expected NPV of 545. With perfect knowledge of
+   every input and every random event, the average would be 545 + 195 = 740. So **EVPI = 195**: no research
+   programme can be worth more than 195 per school.
+2. Perfect knowledge of the single input `bureaucratic_barriers` (how likely a bureaucratic barrier stops the
+   project) is worth **EVPPI of about 1.9** (standard error 0.9), about 1% of the EVPI. Most of the 195 comes
+   from other inputs or from randomness no study can remove.
+3. A real survey is worth less than that: **EVSI is at most about 1.9** per school, and in practice about 0.5-2
+   (see the EVSI table). A survey costs 7-52 in total, but its value is per school, so it pays off only if
+   enough schools use it: with a 5-year horizon and 5% discounting the survey of 10 schools breaks even once
+   about 2 schools use the result.
+4. Check the uncertainty before believing any number: an estimate smaller than about twice its standard
+   error, or one flagged `noisy`, is indistinguishable from zero.
 
 ## The school garden decision
 
@@ -123,8 +154,8 @@ regression methods (`outputs/evppi_robustness.csv`), million VND:
 
 | School | Input | `gam` | SE | `earth` | `bart` |
 |--------|-------|------:|---:|--------:|-------:|
-| Public | `school_event_value` | 4.2 | 2.7 | 4.9 | 3.7 |
-| Public | `bureaucratic_barriers` | 1.9 | 0.9 | 2.7 | 4.1 |
+| Public | `school_event_value` | 4.2 | 2.6 | 4.9 | 3.7 |
+| Public | `bureaucratic_barriers` | 1.9 | 0.9 | 2.6 | 4.1 |
 | Public | `if_community_likes` | 0.9 | 1.4 | 2.4 | 0.7 |
 | Private | all five inputs | < 0.1 | | < 0.1 | < 0.4 |
 
@@ -144,25 +175,35 @@ of the `school_event_value` fit are checked with `voi::check_regression()`
 
 An illustrative study surveys `n` public schools to learn how often
 bureaucratic barriers stop a garden, using a custom binomial data generator
-(`datagen_fn`) with `voi::evsi()`. Per school, EVSI rises to about 2 million
-VND at n = 100, close to the EVPPI of this input (1.9 +/- 0.9), but it is
-non-monotonic at small n (about 1.0 at n = 10, 0.6 at n = 20), which is
-regression noise, not a real effect.
+(`datagen_fn`) with `voi::evsi()`. Per school, EVSI is 1-2 million
+VND at the larger survey sizes, comparable to the EVPPI of this input (1.9 +/- 0.9), but it is
+not monotonic in n (0.8 at n = 10, 0.5 at n = 20, 2.0 at n = 50) and is numerically zero at n = 5. That is
+regression noise, not a real effect, so `value_of_information.Rmd` flags such rows as `noisy` (EVSI near zero,
+above the EVPPI of the same input, or below the EVSI of a smaller survey).
 
 EVSI is per school; the survey pays off only if enough schools use the
 result. `voi::pop_voi()` and `voi::enbs()` scale it to a population over a
 time horizon. **The number of schools deciding is not taken from any source**:
 `outputs/enbs_by_population.csv` shows a grid (10 to 5000 schools), and
 `outputs/evsi_breakeven_schools.csv` gives the number of schools that must
-face the decision for each survey to break even. With the illustrative
-assumptions (5-year horizon, 5% continuous discounting, study cost 2 + 0.5
-per school surveyed, million VND) a survey of 100 schools breaks even at
-about 6 schools using the result. These break-even counts are small
-because the per-school EVSI is of the order of 1-2 million VND, but that
-EVSI is itself uncertain (standard error about 0.9 on the matching EVPPI),
-so the break-even numbers should be read as an order of magnitude only.
-Replace the cost, horizon, discount rate and school count with real values
-before drawing conclusions.
+face the decision for each survey to break even. Assumptions (all illustrative): 5-year horizon, 5%
+continuous discounting, study cost 2 + 0.5 per school surveyed, 100 schools for the reference column
+(million VND). `outputs/evsi_bureaucratic_barriers.csv` has the full table.
+
+| Survey size n | EVSI per school | Value for 100 schools | Study cost | Break-even schools | Noisy |
+|--------------:|----------------:|----------------------:|-----------:|-------------------:|:------|
+| 5 | ~0 | ~0 | 4.5 | NA | yes |
+| 10 | 0.82 | 361 | 7.0 | 1.9 | no |
+| 20 | 0.45 | 201 | 12.0 | 6.0 | yes |
+| 50 | 2.02 | 894 | 27.0 | 3.0 | yes |
+| 100 | 1.21 | 533 | 52.0 | 9.7 | yes |
+
+Compare the "Value for 100 schools" column (EVSI x discounted schools x years), not the per-school EVSI,
+with the cost. On these assumptions every survey with a usable estimate breaks even at fewer than 10
+schools. Only the n = 10 row is not flagged, and the flags show that these EVSI estimates are not
+distinguishable from each other (the EVPPI they are bounded by has a standard error of 0.9), so the
+break-even numbers are an order of magnitude only. Replace the cost, horizon, discount rate and school count
+with real values before drawing conclusions.
 
 ### Pareto trade-offs
 

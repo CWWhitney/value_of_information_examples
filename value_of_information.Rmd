@@ -16,7 +16,7 @@ knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
 source("functions/load_all.R")
 dir.create("outputs", showWarnings = FALSE)
 refresh <- isTRUE(params$refresh)
-set.seed(42)
+set.seed(42)  # each stochastic step below re-seeds itself (seed = 42), so chunks can be re-run in any order
 ```
 
 Value-of-information (VoI) analysis of the school garden model (@whitney2026garden). Front end:
@@ -73,6 +73,7 @@ residuals of the largest public-school input can be checked with `voi::check_reg
 
 ```{r check-regression, fig.height = 6}
 top_public <- single_evppi$input[single_evppi$school == "public"][1]
+set.seed(42)
 fit <- voi::evppi(decisions$public, x, pars = top_public, check = TRUE)
 voi::check_regression(fit)
 ```
@@ -94,23 +95,28 @@ The number of schools that would use the result is not taken from any source: a 
 break-even number of schools is solved for.
 
 ```{r evsi}
-if (refresh || !file.exists("outputs/evsi_breakeven_schools.csv")) {
+# One cached computation writes all three EVSI tables
+studies <- cached_csv("outputs/evsi_bureaucratic_barriers.csv", {
   survey <- barrier_survey_value(decisions, x)
-  write.csv(survey$studies, "outputs/evsi_bureaucratic_barriers.csv", row.names = FALSE)
   write.csv(survey$enbs_best, "outputs/enbs_by_population.csv", row.names = FALSE)
   write.csv(survey$breakeven, "outputs/evsi_breakeven_schools.csv", row.names = FALSE)
-}
-studies <- read.csv("outputs/evsi_bureaucratic_barriers.csv")
-knitr::kable(studies, digits = 2, caption = "EVSI per school, cost and net value by survey size (million VND)")
+  survey$studies
+}, refresh)
+knitr::kable(studies, digits = 2, caption = paste0(
+  "Per-school EVSI, discounted value of the result for `pop_ref` schools, cost and net value (million VND). ",
+  "`noisy = TRUE`: regression estimate not trustworthy (see text)"))
 knitr::kable(read.csv("outputs/enbs_by_population.csv"), digits = 1,
              caption = "Best survey size and expected net benefit of sampling, by number of schools deciding")
 knitr::kable(read.csv("outputs/evsi_breakeven_schools.csv"), digits = 2,
-             caption = "Number of schools that must use the result for each survey to break even")
+             caption = "Number of schools that must use the result for each survey to break even (NA: EVSI numerically zero)")
 ```
 
-EVSI is per school and noisy (it is not monotonic at small `n`, and should not exceed the EVPPI of
-`bureaucratic_barriers`, which has a standard error of about 0.9), so the break-even numbers are an order of
-magnitude only.
+How to read these tables: EVSI is the gain **per school**, so it must be compared with the study cost only
+after multiplying by the number of schools that use the result (and discounting over the horizon):
+`value_pop_ref` is that population value for `pop_ref` schools and `net_value_pop_ref` is it minus the cost.
+A row is `noisy` when EVSI is numerically zero, above the EVPPI of the same input (`evppi_ref`; impossible in
+theory), or below the EVSI of a smaller survey (impossible in theory). Treat flagged rows as regression noise,
+not as results. Even unflagged rows are an order of magnitude only.
 
 # Pareto-optimal draws of the Monte Carlo sample
 
@@ -126,4 +132,12 @@ pareto_mc_summary <- do.call(rbind, lapply(names(pf), function(o) data.frame(
 write.csv(pareto_mc_summary, "outputs/pareto_summary.csv", row.names = FALSE)
 knitr::kable(pareto_mc_summary, digits = 1)
 write.csv(evpi_tab, "outputs/evpi.csv", row.names = FALSE)
+```
+
+# Session information
+
+Package versions used for this render (the tested versions are also pinned in `renv.lock`).
+
+```{r session-info}
+sessionInfo()
 ```
