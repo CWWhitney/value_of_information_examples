@@ -56,17 +56,41 @@ garden_input_groups <- function(x) {
        all_probabilities = prob, all_values = setdiff(names(x), prob))
 }
 
-# Grouped EVPPI by regression method. "gam" handles up to 4 inputs; "earth" any number but can miss interactions.
-evppi_groups_table <- function(decisions, x, groups, evpi_tab) {
+# Grouped EVPPI by regression method. "gam" handles up to 4 inputs; "earth" any number.
+# earth's default model is additive (no interactions), which can fit poorly and push EVPPI above EVPI
+# (voi issue #8). The voi author's advice is to raise `degree` to allow interactions and to check that the
+# estimate is stable between degrees (2 vs 3). We do that and keep every number the function returns,
+# including impossible ones: voi's own warning text (warn_evppi_gt_evpi) goes in `earth_warning` and
+# `earth_exceeds_evpi` flags the cells where the fit has failed, so the report can explain them.
+evppi_earth <- function(decision, x, pars, degree) {
+  msg <- NA_character_
+  val <- withCallingHandlers(
+    tryCatch(voi::evppi(decision, x, pars = list(pars), method = "earth", degree = degree)$evppi,
+             error = function(e) NA_real_),
+    warning = function(w) { msg <<- conditionMessage(w); invokeRestart("muffleWarning") })
+  list(value = val, warning = msg)
+}
+
+evppi_groups_table <- function(decisions, x, groups, evpi_tab, degree = 2, check_degree = degree + 1) {
   res <- do.call(rbind, lapply(names(decisions), function(s) {
     do.call(rbind, lapply(names(groups), function(g) {
       pars <- groups[[g]]
-      safe <- function(m) tryCatch(voi::evppi(decisions[[s]], x, pars = list(pars), method = m)$evppi, error = function(e) NA_real_)
-      data.frame(school = s, group = g, n_inputs = length(pars),
-                 gam = if (length(pars) <= 4) safe("gam") else NA_real_, earth = safe("earth"), row.names = NULL)
+      gam <- if (length(pars) <= 4)
+        tryCatch(voi::evppi(decisions[[s]], x, pars = list(pars), method = "gam")$evppi, error = function(e) NA_real_)
+      else NA_real_
+      e <- evppi_earth(decisions[[s]], x, pars, degree)
+      e2 <- evppi_earth(decisions[[s]], x, pars, check_degree)
+      data.frame(school = s, group = g, n_inputs = length(pars), gam = gam,
+                 earth = e$value, earth_check_degree = e2$value, earth_warning = e$warning, row.names = NULL)
     }))
   }))
-  merge(res, evpi_tab[, c("school", "evpi")], by = "school")
+  res <- merge(res, evpi_tab[, c("school", "evpi")], by = "school")
+  res$earth_exceeds_evpi <- !is.na(res$earth) & res$earth > res$evpi
+  if (any(res$earth_exceeds_evpi))
+    warning("earth EVPPI exceeds the EVPI (voi: \"", unique(na.omit(res$earth_warning))[1], "\") for ",
+            paste(res$school[res$earth_exceeds_evpi], res$group[res$earth_exceeds_evpi], collapse = "; "),
+            ". Values are kept; see earth_check_degree for degree = ", check_degree, ".", call. = FALSE)
+  res
 }
 
 # ---- EVSI: a survey of n public schools about bureaucratic barriers ---------------------------

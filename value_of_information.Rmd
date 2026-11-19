@@ -82,8 +82,24 @@ voi::check_regression(fit)
 ```{r evppi-groups}
 groups <- garden_input_groups(x)
 group_evppi <- cached_csv("outputs/evppi_groups.csv", evppi_groups_table(decisions, x, groups, evpi_tab), refresh)
-knitr::kable(group_evppi, digits = 2)
+knitr::kable(group_evppi[, c("school", "group", "n_inputs", "gam", "earth", "earth_check_degree", "evpi", "earth_exceeds_evpi")], digits = 2)
 ```
+
+**Reading the `earth` column.** An EVPPI cannot be larger than the EVPI, because learning some inputs
+cannot be worth more than learning all of them. `earth` is the regression method in the
+[`voi` package](https://chjackson.github.io/voi/) [@jackson2024voi]; its default model has no interactions
+between inputs, and with many inputs it can fit poorly and overshoot. We show the numbers exactly as
+`voi::evppi()` returns them, impossible ones included, so the failure is visible.
+
+The package author's advice for this case ([voi issue #8](https://github.com/chjackson/voi/issues/8)) is to
+set `degree = 2` or higher so the model can include interactions, then to compare `degree = 3`: if the
+estimate barely moves, it is probably close to the right answer. We use `degree = 2` and report `degree = 3`
+in `earth_check_degree`. This worked for the groups of 20 or fewer inputs (the two estimates agree
+closely and sit well below the EVPI). It does **not** work for private schools with all 64 inputs: the
+estimate is 40.4 at degree 2 and 45.3 at degree 3, both above the EVPI of 38.3, and it is still rising.
+`voi` (1.0.4 and later) warns in this case; the warning text is kept in `earth_warning` in
+`outputs/evppi_groups.csv`. Treat rows with `earth_exceeds_evpi = TRUE` as failed fits, not as results.
+The 64-input public-school value (67 at degree 2, 75 at degree 3) is below the EVPI but also not stable.
 
 # EVSI, population value and net benefit of sampling
 
