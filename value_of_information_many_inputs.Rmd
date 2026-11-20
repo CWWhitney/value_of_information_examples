@@ -1,0 +1,134 @@
+---
+title: "Impossible EVPPI: joint EVPPI of many inputs"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    df_print: paged
+params:
+  refresh: false   # recompute the cached results; a few minutes
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+source("functions/load_all.R")
+dir.create("outputs", showWarnings = FALSE)
+refresh <- isTRUE(params$refresh)
+```
+
+**Status: exploration.** The main analysis (`value_of_information.Rmd`, `README.md`) reports the numbers as
+they come out, including the impossible one. This side document explains why it is impossible and tries ways
+of getting a defensible number. Nothing here changes the main results.
+
+# The problem
+
+For private schools, the joint EVPPI of the 64 "value" inputs (`all_values`) estimated with `earth` is larger
+than the EVPI. That cannot be true: learning some inputs can never be worth more than learning everything.
+
+```{r data}
+d <- readRDS("repro/private_school_voi_data.rds")   # payoffs, inputs, and the 64 input names (made by the repro)
+cat("EVPI:", voi::evpi(d$payoffs), "\n")
+cat("EVPPI (earth, default):", suppressWarnings(voi::evppi(d$payoffs, d$inputs, pars = list(d$pars), method = "earth")$evppi), "\n")
+```
+
+`voi` 1.0.3 **does warn** ("Found an EVPPI estimate greater than the EVPI"). The warning is easy to miss:
+`knitr` chunks here use `warning = FALSE`, and `evppi_groups_table()` wraps the call in `tryCatch()`.
+The package maintainers' view ([chjackson/voi#8](https://github.com/chjackson/voi/issues/8)) is that this is a
+limitation of regression-based EVPPI with many inputs, not a bug: the regression needs more structure,
+at more computing cost.
+
+# What is going on (so far)
+
+`voi::evppi()` fits a regression of each option's net benefit on the inputs of interest and takes the mean of
+the largest fitted value per run, minus the best expected payoff. In theory a regression fit cannot give more
+than the EVPI, but a flexible fit that is tuned to the sample can. The obvious suspect is **overfitting noise**.
+Two checks below argue against the simple version of that story:
+
+- **Negative control.** Shuffle the payoff rows relative to the inputs: the true EVPPI is exactly 0. All methods
+  give about 0 (`null_evppi`), so the method does not invent value from pure noise.
+- **More runs.** If it were small-sample noise, 30,000 runs would fix it. They do not.
+
+So the excess comes from the real signal: the additive `earth` fit extrapolates or mis-shapes the
+signal that is there, in a way that pushes the maximum of the fitted values up. We have not pinned the exact
+mechanism down. The control is therefore **not** a bias correction: it measures bias when there is no signal,
+and the bias with signal present is evidently different.
+
+# Variants
+
+```{r variants}
+variants <- list(
+  `earth, additive (voi default)` = list(method = "earth", args = list()),
+  `earth, 2-way interactions`     = list(method = "earth", args = list(degree = 2)),
+  `bart`                          = list(method = "bart", args = list()))
+res <- cached_csv("outputs/evppi_many_inputs_variants.csv",
+                  evppi_variants(d$payoffs, d$inputs, d$pars, variants), refresh)
+knitr::kable(res, digits = 1, caption = "Joint EVPPI of the 64 inputs, real data and permutation control (million VND)")
+```
+
+How to read it: `above_evpi = TRUE` is impossible. `null_evppi` is the estimate on shuffled data, where the
+truth is 0. It is about 0 for every method, so `corrected` (= `evppi - null_evppi`) is no different from `evppi`
+and is not a useful correction here. Allowing 2-way interactions brings `earth` below the EVPI (about 31), and
+`bart` gives about 36, essentially the whole EVPI. The truth is unknown, so being below the EVPI does not make
+an estimate right.
+
+# More runs
+
+More runs should reduce the bias. The model is re-run with a larger sample (new seed, same inputs).
+
+```{r more-runs}
+big <- cached_csv("outputs/evppi_many_inputs_runs.csv", {
+  do.call(rbind, lapply(c(5000, 10000, 30000), function(n) {
+    mc <- run_garden_mc(n = n, seed = 7)
+    x <- garden_inputs(mc)
+    pars <- d$pars[d$pars %in% names(x)]
+    r <- evppi_variants(garden_decisions(mc)$private, x, pars, variants[1:2])
+    cbind(runs = n, r)
+  }))
+}, refresh)
+knitr::kable(big[, c("runs", "variant", "evpi", "evppi", "above_evpi", "null_evppi", "corrected", "seconds")], digits = 1)
+```
+
+# Which fit describes the data better?
+
+Fit on 70% of the runs and measure how much of the variance of each option's net benefit is explained on the
+other 30%. A fit that is better out of sample is closer to the true conditional expectation.
+
+```{r holdout}
+holdout <- cached_csv("outputs/evppi_many_inputs_holdout.csv", {
+  set.seed(42)
+  n <- nrow(d$payoffs); train <- sample(n, 0.7 * n)
+  xx <- d$inputs[, d$pars]
+  do.call(rbind, lapply(c("garden", "garden_STEM"), function(o) do.call(rbind, lapply(1:2, function(deg) {
+    y <- d$payoffs[, o]
+    fit <- earth::earth(xx[train, ], y[train], degree = deg)
+    r2 <- function(i) 1 - sum((y[i] - predict(fit, xx[i, ]))^2) / sum((y[i] - mean(y[i]))^2)
+    data.frame(option = o, degree = deg, r2_train = r2(train), r2_test = r2(-train))
+  }))))
+}, refresh)
+knitr::kable(holdout, digits = 3)
+```
+
+Train and test R squared are almost equal, so there is little overfitting in the usual sense; the 2-way
+interaction fit explains clearly more variance out of sample (about 0.72 vs 0.68). The additive fit is
+**misspecified** (it misses interactions), and that, not noise, is the best current explanation for why the
+default `earth` value is off. A misspecified fit can still push the maximum of the fitted values above the EVPI.
+
+# Next steps (to explore)
+
+- Smaller groups with `gam` (up to 4 inputs) and screening the 64 inputs, checking that nested groups give
+  non-decreasing EVPPIs below the EVPI.
+- Tuning `earth` (`degree`, `nk`, `thresh`) and `bart` (number of trees, runs) with the hold-out R squared.
+- Whether the EVPI itself is well estimated by 10,000 runs (it moves between 36 and 40 across samples).
+
+# Take-aways (update when the exploration is done)
+
+- Treat any joint EVPPI above the EVPI as unusable; `voi` warns about it, so do not suppress that warning.
+- Report several methods side by side; they disagree widely here (about 31 to 44).
+- More runs do not fix it, and the shuffle control does not correct it. Interactions (`degree = 2`) fit better out
+  of sample and give a value below the EVPI (about 31); `bart` gives about 36. Which is closest to the truth is open.
+
+# Session information
+
+```{r session-info}
+sessionInfo()
+```

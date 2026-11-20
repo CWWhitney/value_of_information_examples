@@ -60,6 +60,7 @@ document that calls those functions and saves its results in `outputs/`:
 | Document | What it does |
 |----------|--------------|
 | [value_of_information.Rmd](value_of_information.Rmd) | Value of information with `voi`: EVPI, EVPPI (with standard errors), EVSI, population value and net benefit of sampling |
+| [value_of_information_many_inputs.Rmd](value_of_information_many_inputs.Rmd) | Side exploration: why the joint EVPPI of many inputs can exceed the EVPI (`earth`, private-school `all_values`) and what might fix it. Work in progress |
 
 ```r
 rmarkdown::render("value_of_information.Rmd")   # add params = list(refresh = TRUE) to recompute

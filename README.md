@@ -63,9 +63,10 @@ Functions are in `functions/*.R` (`functions/load_all.R` loads them
 all); the analysis is an R Markdown document that calls those functions
 and saves its results in `outputs/`:
 
-| Document                                               | What it does                                                                                                            |
-|--------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------|
-| [value\_of\_information.Rmd](value_of_information.Rmd) | Value of information with `voi`: EVPI, EVPPI (with standard errors), EVSI, population value and net benefit of sampling |
+| Document                                                                         | What it does                                                                                                                                            |
+|----------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------|
+| [value\_of\_information.Rmd](value_of_information.Rmd)                           | Value of information with `voi`: EVPI, EVPPI (with standard errors), EVSI, population value and net benefit of sampling                                 |
+| [value\_of\_information\_many\_inputs.Rmd](value_of_information_many_inputs.Rmd) | Side exploration: why the joint EVPPI of many inputs can exceed the EVPI (`earth`, private-school `all_values`) and what might fix it. Work in progress |
 
 ``` r
 rmarkdown::render("value_of_information.Rmd")   # add params = list(refresh = TRUE) to recompute

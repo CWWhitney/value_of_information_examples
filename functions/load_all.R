@@ -5,5 +5,6 @@ for (f in c("vv", "chance_event", "discount",             # decisionSupport help
             "school_garden_model",                        # the model (Whitney et al.)
             "run_garden_mc",                               # running the model
             "voi_garden",                                 # value of information (voi)
+            "evppi_many_inputs",                          # EVPPI of many inputs: variants and control
             "utils"))                                      # small generic helpers
   source(file.path("functions", paste0(f, ".R")))
